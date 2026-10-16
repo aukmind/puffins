@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project Reviews</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --text: #1c1c1a; --muted: #6b6b66; --border: #e3e2dd;
+  --code-bg: #f0efea; --accent: #2f5fd0; --ok: #15803d; --warn: #a16207; --bad: #b91c1c;
+  --critical: #a1124a; --high: #c2410c; --medium: #a16207; --low: #3f6fb5; --nit: #6b7280;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615; --panel: #1f1f1d; --text: #e9e8e3; --muted: #9a9993; --border: #34332f;
+    --code-bg: #2a2a27; --accent: #7aa2ff; --ok: #4ade80; --warn: #e5b53d; --bad: #f87171;
+    --critical: #f0609a; --high: #fb8a4c; --medium: #e5b53d; --low: #7fa8e8; --nit: #9ca3af;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--border); padding: 12px 16px; }
+h1 { font-size: 18px; margin: 0 0 8px; }
+.stats { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.chip { border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 999px; padding: 2px 10px; cursor: pointer; font: inherit; }
+.chip[aria-pressed="false"] { opacity: .4; }
+.chip b { font-variant-numeric: tabular-nums; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.controls input, .controls select, button.act { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
+button.act { cursor: pointer; }
+button.act:hover { border-color: var(--accent); }
+button.act:disabled { opacity: .5; cursor: default; }
+.controls input[type=search] { flex: 1 1 220px; min-width: 0; }
+.controls .toggle { display: flex; align-items: center; gap: 4px; }
+.controls .toggle input { padding: 0; }
+main { max-width: 1600px; margin: 0 auto; padding: 12px 16px 48px; display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 16px; align-items: start; }
+#queue { position: sticky; top: var(--head, 140px); max-height: calc(100vh - var(--head, 140px) - 16px); overflow-y: auto; }
+#queue .finding > summary { grid-template-columns: 60px 1fr auto; }
+#queue .finding .quick { grid-column: 2 / -1; justify-content: flex-start; }
+#queue .finding .body { padding-left: 12px; }
+.project.done { opacity: .65; }
+@media (max-width: 1000px) { main { grid-template-columns: minmax(0, 1fr); } #queue { position: static; max-height: none; } }
+.status { color: var(--muted); margin: 8px 0; }
+.project { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin: 10px 0; }
+.project > summary { padding: 10px 12px; cursor: pointer; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.project > summary .name { font-weight: 600; font-family: ui-monospace, monospace; }
+.project > summary .counts { margin-left: auto; display: flex; gap: 4px; }
+.scope { color: var(--muted); padding: 0 12px 8px; font-size: 13px; }
+.finding { border-top: 1px solid var(--border); }
+.finding > summary { padding: 8px 12px; cursor: pointer; display: grid; grid-template-columns: 72px 1fr auto auto; gap: 8px; align-items: start; }
+.quick { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.quick button.act { padding: 2px 6px; font-size: 12px; }
+.project > summary .quick { margin-left: 8px; }
+.finding .meta { color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+.finding .body { padding: 0 12px 12px 92px; }
+.finding h4 { margin: 10px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.finding p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.finding .actions { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+.sev { display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; border-radius: 4px; padding: 1px 6px; color: #fff; text-align: center; height: fit-content; }
+.sev.critical { background: var(--critical); } .sev.high { background: var(--high); } .sev.medium { background: var(--medium); }
+.sev.low { background: var(--low); } .sev.nit { background: var(--nit); }
+.fix { font-size: 11px; font-weight: 600; border: 1px solid currentColor; border-radius: 4px; padding: 0 6px; height: fit-content; white-space: nowrap; }
+.fix.queued, .fix.needs-input { color: var(--warn); } .fix.working { color: var(--accent); } .fix.fixed { color: var(--ok); } .fix.skipped { color: var(--muted); } .fix.failed { color: var(--bad); }
+.listener { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; font-weight: 400; }
+.listener::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.listener.on { color: var(--ok); } .listener.on::before { background: var(--ok); }
+.usage { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 8px; display: inline-flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.usage .bar { display: inline-block; width: 70px; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; vertical-align: middle; }
+.usage .bar i { display: block; height: 100%; background: var(--ok); }
+.usage .bar i.warn { background: var(--warn); } .usage .bar i.bad { background: var(--bad); }
+#queue h2 { font-size: 14px; margin: 8px 0; display: flex; gap: 8px; align-items: baseline; }
+#queue h2 small { color: var(--muted); font-weight: 400; }
+.chat { margin-top: 14px; border-top: 1px dashed var(--border); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.msg { border-radius: 8px; padding: 6px 10px; max-width: 92%; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg.claude { background: var(--code-bg); align-self: flex-start; }
+.msg.user { border: 1px solid var(--accent); align-self: flex-end; }
+.msg .who { font-size: 11px; color: var(--muted); display: block; }
+.opts { display: flex; flex-direction: column; gap: 6px; }
+.opts button { text-align: left; }
+.opts button small { display: block; color: var(--muted); }
+.reply { display: flex; gap: 6px; align-items: flex-end; }
+.reply textarea { flex: 1; min-height: 38px; font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; resize: vertical; }
+code { background: var(--code-bg); border-radius: 3px; padding: 0 3px; font-size: 12.5px; }
+.notes { padding: 8px 12px; border-top: 1px dashed var(--border); color: var(--muted); font-size: 13px; }
+a { color: var(--accent); }
+#toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 6px 12px; border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+#toast.show { opacity: 1; }
+@media (max-width: 640px) {
+  .finding > summary { grid-template-columns: 1fr; }
+  .finding .body { padding-left: 12px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Project reviews <span class="listener" id="listener">No Claude listening</span> <span class="usage" id="usage"></span></h1>
+  <div class="stats" id="stats"></div>
+  <div class="controls">
+    <input type="search" id="q" placeholder="Search title, file, text…">
+    <select id="area"><option value="">All areas</option></select>
+    <select id="category"><option value="">All categories</option></select>
+    <select id="fix">
+      <option value="">Any fix status</option>
+      <option value="open">Open (not queued/fixed)</option>
+      <option value="active">In queue (queued/working/needs input)</option>
+      <option value="needs-input">Needs input</option>
+      <option value="queued">Queued</option>
+      <option value="working">Working</option>
+      <option value="fixed">Fixed</option>
+      <option value="skipped">Skipped</option>
+      <option value="failed">Failed</option>
+    </select>
+    <select id="sort">
+      <option value="severity">Projects by worst severity</option>
+      <option value="name">Projects by name</option>
+      <option value="flat">All findings by severity</option>
+    </select>
+    <label class="toggle" title="Fix agents commit each fix on its own"><input type="checkbox" id="commit" checked> Commit fixes</label>
+    <button class="act" id="copyAll">Copy visible</button>
+    <button class="act" data-all="autofix" disabled>Autofix visible</button>
+    <button class="act" data-all="propose" disabled>Propose fixes for visible</button>
+  </div>
+</header>
+<main>
+  <div>
+    <div class="status" id="status">Discovering reviews…</div>
+    <div id="list"></div>
+  </div>
+  <aside id="queue"></aside>
+</main>
+<div id="toast"></div>
+<script>
+const SEVERITIES = ["critical", "high", "medium", "low", "nit"];
+const rank = s => { const i = SEVERITIES.indexOf(s); return i < 0 ? SEVERITIES.length : i; };
+const state = { q: "", area: "", category: "", fix: "", sort: "severity", sev: new Set(SEVERITIES) };
+let reviews = [];
+let info = null;          // {root, out_dir, skill_dir} from serve.py; null on a plain static server
+let fixes = {};           // key -> {status, note, ts}
+let chats = {};           // key -> [{from, text, ts, options?}]
+const drafts = {};        // key -> unsent reply text, survives re-renders
+const ACTIVE = new Set(["queued", "working", "needs-input"]);
+let byKey = {};
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const inline = s => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+const keyOf = (r, f) => `${r.project}#${f.id}`;
+const base = new URL(".", location.href).pathname;
+const SERVE_HINT = `Run <code>python3 &lt;review skill&gt;/assets/serve.py &lt;review dir&gt;</code> and open <a href="http://localhost:8099/">http://localhost:8099/</a>`;
+const MODE_LABEL = { autofix: "Autofix", propose: "Propose fixes", instruct: "Fix by…" };
+
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove("show"), 1800);
+}
+
+// Crawls the directory listing; `?ls` makes serve.py list even where index.html exists.
+async function discover(dir, seen = new Set()) {
+  if (seen.has(dir)) return [];
+  seen.add(dir);
+  const res = await fetch(dir + "?ls");
+  if (!res.ok) throw new Error(`${dir}: HTTP ${res.status}`);
+  const doc = new DOMParser().parseFromString(await res.text(), "text/html");
+  if (doc.getElementById("list")) throw new Error(`this server returned index.html instead of a directory listing. ${SERVE_HINT}`);
+  const found = [];
+  for (const a of doc.querySelectorAll("a[href]")) {
+    const url = new URL(a.getAttribute("href"), new URL(dir, location.href));
+    if (url.origin !== location.origin || !url.pathname.startsWith(base) || url.search || url.hash) continue;
+    if (url.pathname.endsWith("/")) {
+      if (url.pathname.length > dir.length) found.push(...await discover(url.pathname, seen));
+    } else if (url.pathname.endsWith(".review.yaml")) {
+      found.push(url.pathname);
+    }
+  }
+  return found;
+}
+
+// fix-*.yaml: one `- {json}` row per line.
+async function readLog(name) {
+  try {
+    const res = await fetch(base + name, { cache: "no-store" });
+    if (!res.ok) return [];
+    return (await res.text()).split("\n").filter(Boolean).flatMap(l => { try { return [JSON.parse(l.replace(/^- /, ""))]; } catch { return []; } });
+  } catch { return []; }
+}
+
+// Latest event per key wins: a re-send after a final status re-queues it.
+async function refreshFixes() {
+  const [queue, statuses, chat, nextInfo] = await Promise.all([
+    readLog("fix-queue.yaml"), readLog("fix-status.yaml"), readLog("fix-chat.yaml"),
+    fetch("/api/info", { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null),
+  ]);
+  const next = {};
+  const put = (key, v) => { if (!next[key] || (v.ts || 0) >= (next[key].ts || 0)) next[key] = v; };
+  queue.forEach(q => put(q.key, { status: "queued", ts: q.ts || 0 }));
+  statuses.forEach(s => put(s.key, { status: s.status, note: s.note, ts: s.ts || 0 }));
+  const nextChats = {};
+  chat.forEach(m => (nextChats[m.key] ||= []).push(m));
+  const changed = JSON.stringify([next, nextChats, nextInfo?.listening]) !== JSON.stringify([fixes, chats, info?.listening]);
+  fixes = next; chats = nextChats; if (nextInfo) info = nextInfo;
+  const l = document.getElementById("listener");
+  l.classList.toggle("on", !!info?.listening);
+  l.textContent = info?.listening ? "Claude listening" : info ? "No Claude listening: sent items wait" : "Static server: copy prompts only";
+  if (changed && reviews.length) render();
+}
+
+async function load() {
+  if (location.protocol === "file:") return status(`Browsers can't list directories over file://. ${SERVE_HINT}`);
+  try {
+    info = await fetch("/api/info").then(r => r.ok ? r.json() : null).catch(() => null);
+    document.querySelectorAll("[data-all]").forEach(b => b.disabled = !info);
+    refreshUsage();
+    setInterval(refreshUsage, 60000);
+    const paths = [...new Set(await discover(base))].sort();
+    if (!paths.length) return status("No <code>*.review.yaml</code> files found.");
+    reviews = await Promise.all(paths.map(async p => {
+      const rel = p.slice(base.length);
+      try {
+        const doc = jsyaml.load(await (await fetch(p)).text());
+        return { ...doc, path: rel, area: rel.split("/")[0], findings: doc.findings || [], notes: doc.notes || [] };
+      } catch (e) {
+        return { project: rel, path: rel, area: "?", findings: [], notes: [{ title: "Failed to parse", body: String(e) }] };
+      }
+    }));
+    byKey = {};
+    reviews.forEach(r => r.findings.forEach(f => byKey[keyOf(r, f)] = { r, f }));
+    fillSelect("area", reviews.map(r => r.area));
+    fillSelect("category", reviews.flatMap(r => r.findings.map(f => f.category)));
+    await refreshFixes();
+    render();
+    setInterval(refreshFixes, 2000);
+  } catch (e) {
+    status(`Discovery failed: ${e.message}`);
+  }
+}
+
+function fillSelect(id, values) {
+  const el = document.getElementById(id);
+  for (const v of [...new Set(values.filter(Boolean))].sort()) el.add(new Option(v, v));
+  el.value = state[id];
+}
+
+function status(html) { document.getElementById("status").innerHTML = html; }
+
+function matches(r, f) {
+  if (!state.sev.has(f.severity)) return false;
+  if (state.area && r.area !== state.area) return false;
+  if (state.category && f.category !== state.category) return false;
+  const fx = fixes[keyOf(r, f)]?.status;
+  if (state.fix === "open" ? fx : state.fix === "active" ? !ACTIVE.has(fx) : state.fix && fx !== state.fix) return false;
+  if (!state.q) return true;
+  const hay = [r.project, f.title, f.location, f.category, f.summary, f.failure_scenario, f.suggested_fix].join("\n").toLowerCase();
+  return state.q.toLowerCase().split(/\s+/).every(t => hay.includes(t));
+}
+
+const COMMIT_RULE = "Commit each fix on its own: one small, straightforward commit with only that fix's files, a short imperative subject, and `Co-Authored-By: puffin <puffin@aukmind.com>` as the only co-author. Never mention an AI or LLM in the message.";
+
+// The whole context Claude needs to fix the findings, with no other input.
+function fixPrompt(items) {
+  const root = info?.root || "<repo root>";
+  const out = info?.out_dir || "<review dir>";
+  const skill = info?.skill_dir || "<review skill>";
+  const blocks = items.map(({ r, f }) => `### ${keyOf(r, f)}
+Review file: ${out}/${r.path}
+Project: ${r.description || ""}
+Project files: ${r.files ? JSON.stringify(r.files) : "(see .puffins/projects.yaml)"}
+
+${jsyaml.dump(f, { lineWidth: 120 }).trim()}`).join("\n\n");
+  return `Fix ${items.length === 1 ? "this code-review finding" : `these ${items.length} code-review findings`} in the repo at ${root}.
+
+- Verify each finding against the current code first; it may already be fixed or be a false positive.
+- Fix only what is listed; follow the repo's CLAUDE.md and my saved preferences. If a fix needs a decision from me, stop and ask.
+- ${commitOn() ? COMMIT_RULE : "Do not commit."}
+- After handling each finding, record the outcome so the viewer shows it:
+  python3 ${skill}/scripts/post.py ${out} '<key>' --status fixed|skipped|failed --note "<one line>" --say "<what changed>"
+
+${blocks}
+`;
+}
+
+async function copy(text, what) {
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const ta = Object.assign(document.createElement("textarea"), { value: text });
+    document.body.append(ta); ta.select(); document.execCommand("copy"); ta.remove();
+  }
+  toast(`Copied ${what}`);
+}
+
+const commitBox = document.getElementById("commit");
+try { commitBox.checked = localStorage.getItem("commit") !== "off"; } catch {}
+commitBox.addEventListener("change", () => { try { localStorage.setItem("commit", commitBox.checked ? "on" : "off"); } catch {} });
+const commitOn = () => commitBox.checked;
+
+async function send(items, mode) {
+  if (!info) return toast("Sending needs serve.py");
+  for (const { r, f } of items) {
+    const res = await fetch("/api/fix", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: keyOf(r, f), path: r.path, mode, commit: commitOn() }),
+    });
+    if (!res.ok) return toast(`Queue failed: HTTP ${res.status}`);
+  }
+  toast(`${MODE_LABEL[mode]}: queued ${items.length}${info.listening ? "" : " (no Claude listening yet)"}`);
+  refreshFixes();
+}
+
+async function skip(items) {
+  if (!info) return toast("Skipping needs serve.py");
+  if (!items.length) return toast("Nothing to skip");
+  for (const { r, f } of items) {
+    const res = await fetch("/api/skip", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: keyOf(r, f) }),
+    });
+    if (!res.ok) return toast(`Skip failed: HTTP ${res.status}`);
+  }
+  toast(`Skipped ${items.length}`);
+  refreshFixes();
+}
+
+function until(iso) {
+  const ms = new Date(iso) - Date.now();
+  if (ms <= 0) return "now";
+  const h = Math.floor(ms / 3.6e6), m = Math.round(ms % 3.6e6 / 6e4);
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
+
+async function refreshUsage() {
+  const u = await fetch("/api/usage").then(r => r.ok ? r.json() : null).catch(() => null);
+  const el = document.getElementById("usage");
+  if (!u || u.error) { el.textContent = "Plan usage unavailable"; return; }
+  const part = (label, w, withTime) => {
+    if (!w) return "";
+    const p = Math.round(w.utilization), at = new Date(w.resets_at);
+    const when = withTime ? at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : at.toLocaleDateString([], { weekday: "short" }) + " " + at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return `<span title="Resets ${esc(at.toLocaleString())}">${label} <span class="bar"><i class="${p >= 90 ? "bad" : p >= 70 ? "warn" : ""}" style="width:${Math.min(p, 100)}%"></i></span> ${p}% · resets ${esc(when)} (in ${until(w.resets_at)})</span>`;
+  };
+  el.innerHTML = part("5h", u.five_hour, true) + part("7d", u.seven_day, false);
+}
+
+function countsHtml(findings) {
+  const c = {};
+  findings.forEach(f => c[f.severity] = (c[f.severity] || 0) + 1);
+  return SEVERITIES.filter(s => c[s]).map(s => `<span class="sev ${s}">${c[s]} ${s}</span>`).join("");
+}
+
+const modeButtons = (attr, disabled, skipAttr) => Object.entries(MODE_LABEL).map(([m, label]) =>
+  `<button class="act" ${attr} data-mode="${m}"${disabled ? " disabled" : ""}>${label}</button>`).join("")
+  + `<button class="act" ${skipAttr}${disabled ? " disabled" : ""}>Skip</button>`;
+const DONE = new Set(["fixed", "skipped"]);
+const isDone = r => r.findings.length > 0 && r.findings.every(f => DONE.has(fixes[keyOf(r, f)]?.status));
+
+function findingHtml(f, r, showProject) {
+  const key = keyOf(r, f);
+  const fx = fixes[key];
+  const where = [showProject ? r.project : "", f.location].filter(Boolean).join(" · ");
+  return `<details class="finding" data-k="f:${esc(key)}">
+    <summary><span class="sev ${esc(f.severity)}">${esc(f.severity)}</span>
+      <span><div>${inline(f.title)}</div><div class="meta">${inline(where)}${f.category ? " · " + esc(f.category) : ""}</div></span>
+      ${fx ? `<span class="fix ${esc(fx.status)}" title="${esc(fx.note || "")}">${esc(fx.status)}</span>` : "<span></span>"}
+      <span class="quick">${modeButtons(`data-send="${esc(key)}"`, !info || fx?.status === "queued", `data-skip="${esc(key)}"${DONE.has(fx?.status) ? " disabled" : ""}`)}</span></summary>
+    <div class="body">
+      ${f.severity_note ? `<h4>Severity note</h4><p>${inline(f.severity_note)}</p>` : ""}
+      ${f.summary ? `<h4>Summary</h4><p>${inline(f.summary)}</p>` : ""}
+      ${f.failure_scenario ? `<h4>Failure scenario</h4><p>${inline(f.failure_scenario)}</p>` : ""}
+      ${f.suggested_fix ? `<h4>Suggested fix</h4><p>${inline(f.suggested_fix)}</p>` : ""}
+      ${f.notes ? `<h4>Notes</h4><p>${inline(f.notes)}</p>` : ""}
+      ${fx?.note ? `<h4>Fix note</h4><p>${inline(fx.note)}</p>` : ""}
+      <div class="actions">
+        <button class="act" data-copy="${esc(key)}">Copy fix prompt</button>
+      </div>
+      ${chatHtml(key)}
+    </div></details>`;
+}
+
+function chatHtml(key) {
+  const msgs = chats[key] || [];
+  if (!msgs.length && !fixes[key]) return "";
+  const last = msgs[msgs.length - 1];
+  const opts = last?.from === "claude" && last.options?.length ? `<div class="opts">${last.options.map((o, i) =>
+    `<button class="act" data-answer="${esc(key)}" data-text="${esc(o.label)}"><b>${esc(o.label)}</b>${i === 0 ? " (recommended)" : ""}${o.description ? `<small>${inline(o.description)}</small>` : ""}</button>`).join("")}</div>` : "";
+  return `<div class="chat">
+    ${msgs.map(m => `<div class="msg ${m.from === "user" ? "user" : "claude"}"><span class="who">${m.from === "user" ? "You" : "Claude"}</span>${inline(m.text)}</div>`).join("")}
+    ${opts}
+    <div class="reply"><textarea data-draft="${esc(key)}" rows="1" placeholder="Reply to Claude about this finding…"${info ? "" : " disabled"}></textarea>
+      <button class="act" data-reply="${esc(key)}"${info ? "" : " disabled"}>Reply</button></div>
+  </div>`;
+}
+
+async function reply(key, text) {
+  text = text.trim();
+  if (!text || !info) return;
+  const res = await fetch("/api/reply", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, text }),
+  });
+  if (!res.ok) return toast(`Reply failed: HTTP ${res.status}`);
+  delete drafts[key];
+  if (!info.listening) toast("Saved. No Claude is listening yet");
+  refreshFixes();
+}
+
+function queueHtml() {
+  const items = Object.entries(fixes).filter(([k]) => byKey[k])
+    .sort(([, a], [, b]) => (ACTIVE.has(b.status) - ACTIVE.has(a.status)) || (b.ts || 0) - (a.ts || 0));
+  if (!items.length) return `<h2>Fix queue</h2><div class="status">Nothing sent yet.</div>`;
+  const active = items.filter(([, v]) => ACTIVE.has(v.status)).length;
+  return `<h2>Fix queue <small>${active} active · ${items.length - active} done</small></h2>
+    <div class="project">${items.map(([k]) => findingHtml(byKey[k].f, byKey[k].r, true)).join("")}</div>`;
+}
+
+function visible() {
+  return reviews.flatMap(r => r.findings.filter(f => matches(r, f)).map(f => ({ r, f })))
+    .sort((a, b) => rank(a.f.severity) - rank(b.f.severity) || a.r.project.localeCompare(b.r.project) || a.f.id - b.f.id);
+}
+
+function render() {
+  const all = reviews.flatMap(r => r.findings.map(f => ({ r, f })));
+  const totals = {};
+  all.forEach(({ f }) => totals[f.severity] = (totals[f.severity] || 0) + 1);
+  document.getElementById("stats").innerHTML = SEVERITIES.filter(s => totals[s]).map(s =>
+    `<button class="chip" data-sev="${s}" aria-pressed="${state.sev.has(s)}"><span class="sev ${s}">${s}</span> <b>${totals[s]}</b></button>`).join("");
+
+  const shown = visible();
+  const fixed = Object.values(fixes).filter(x => x.status === "fixed").length;
+  status(`${shown.length} of ${all.length} findings across ${reviews.length} projects${fixed ? ` · ${fixed} fixed` : ""}`);
+  document.getElementById("copyAll").textContent = `Copy visible (${shown.length})`;
+  document.querySelectorAll("[data-all]").forEach(b => b.textContent = `${b.dataset.all === "autofix" ? "Autofix" : "Propose fixes for"} visible (${shown.filter(({ r, f }) => !ACTIVE.has(fixes[keyOf(r, f)]?.status)).length})`);
+
+  // Keep expanded rows, focus and caret across the 2 s polls.
+  const where = d => `${d.closest("#queue") ? "q" : "l"}:${d.dataset.k}`;
+  const openDetails = new Set([...document.querySelectorAll("details[open][data-k]")].map(where));
+  const focused = document.activeElement?.dataset?.draft != null
+    ? { k: where(document.activeElement.closest("details")), pos: document.activeElement.selectionStart } : null;
+  const list = document.getElementById("list");
+  if (state.sort === "flat") {
+    list.innerHTML = `<div class="project">${shown.map(({ r, f }) => findingHtml(f, r, true)).join("")}</div>`;
+  } else {
+    const groups = reviews.map(r => ({ r, fs: r.findings.filter(f => matches(r, f)).sort((a, b) => rank(a.severity) - rank(b.severity) || a.id - b.id) }))
+      .filter(g => g.fs.length || (!state.q && !state.category && !state.fix && g.r.notes.length && (!state.area || g.r.area === state.area)));
+    const worst = g => Math.min(...g.fs.map(f => rank(f.severity)), 99);
+    groups.sort(state.sort === "name" ? (a, b) => a.r.project.localeCompare(b.r.project)
+      : (a, b) => worst(a) - worst(b) || b.fs.length - a.fs.length || a.r.project.localeCompare(b.r.project));
+    const open = !!(state.q || state.category || state.fix || state.sev.size < SEVERITIES.length);
+    groups.sort((a, b) => isDone(a.r) - isDone(b.r));
+    list.innerHTML = groups.map(({ r, fs }) => `<details class="project${isDone(r) ? " done" : ""}" data-k="p:${esc(r.project)}"${open ? " open" : ""}>
+      <summary>${isDone(r) ? "<span title=\"All findings fixed or skipped\">✅</span>" : ""}<span class="name">${esc(r.project)}</span><a href="${esc(r.path)}">yaml</a>
+        <span class="counts">${countsHtml(fs)}</span>
+        ${fs.length && !isDone(r) ? `<span class="quick" title="Act on this project's shown findings">${modeButtons(`data-send-project="${esc(r.project)}"`, !info, `data-skip-project="${esc(r.project)}"`)}</span>` : ""}</summary>
+      ${r.scope ? `<div class="scope">${inline(r.scope)}</div>` : ""}
+      ${fs.map(f => findingHtml(f, r, false)).join("")}
+      ${r.notes.map(n => `<div class="notes"><b>${inline(n.title)}</b><p>${inline(n.body)}</p></div>`).join("")}
+    </details>`).join("");
+  }
+  document.getElementById("queue").innerHTML = queueHtml();
+  document.documentElement.style.setProperty("--head", document.querySelector("header").offsetHeight + 12 + "px");
+  document.querySelectorAll("details[data-k]").forEach(d => { if (openDetails.has(where(d))) d.open = true; });
+  document.querySelectorAll("textarea[data-draft]").forEach(t => {
+    t.value = drafts[t.dataset.draft] || "";
+    if (focused && where(t.closest("details")) === focused.k) { t.focus(); t.setSelectionRange(focused.pos, focused.pos); }
+  });
+}
+
+function readHash() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  for (const k of ["q", "area", "category", "fix"]) state[k] = p.get(k) || "";
+  state.sort = p.get("sort") || "severity";
+  if (p.has("sev")) state.sev = new Set(p.get("sev").split(",").filter(Boolean));
+  for (const k of ["q", "sort", "fix"]) document.getElementById(k).value = state[k];
+}
+
+function writeHash() {
+  const p = new URLSearchParams();
+  for (const k of ["q", "area", "category", "fix"]) if (state[k]) p.set(k, state[k]);
+  if (state.sort !== "severity") p.set("sort", state.sort);
+  if (state.sev.size < SEVERITIES.length) p.set("sev", [...state.sev].join(","));
+  history.replaceState(null, "", "#" + p.toString());
+  render();
+}
+
+document.getElementById("q").addEventListener("input", e => { state.q = e.target.value.trim(); writeHash(); });
+for (const id of ["area", "category", "fix", "sort"]) document.getElementById(id).addEventListener("change", e => { state[id] = e.target.value; writeHash(); });
+document.getElementById("stats").addEventListener("click", e => {
+  const s = e.target.closest("[data-sev]")?.dataset.sev;
+  if (!s) return;
+  state.sev.has(s) ? state.sev.delete(s) : state.sev.add(s);
+  writeHash();
+});
+document.getElementById("copyAll").addEventListener("click", () => {
+  const v = visible();
+  if (v.length) copy(fixPrompt(v), `${v.length} findings`);
+});
+function sendFresh(items, mode) {
+  const v = items.filter(({ r, f }) => !ACTIVE.has(fixes[keyOf(r, f)]?.status));
+  if (!v.length) return toast("Nothing to send");
+  const n = new Set(v.map(({ r }) => r.project)).size;
+  if (v.length > 10 && !confirm(`${MODE_LABEL[mode]} ${v.length} findings? One Claude subagent per project (${n}), each working through its findings in order.`)) return;
+  send(v, mode);
+}
+document.querySelectorAll("[data-all]").forEach(b => b.addEventListener("click", () => sendFresh(visible(), b.dataset.all)));
+for (const id of ["list", "queue"]) {
+  const el = document.getElementById(id);
+  el.addEventListener("click", e => {
+    const c = e.target.closest("[data-copy]")?.dataset.copy;
+    // Buttons in a <summary> must not toggle it.
+    if (e.target.closest("summary button")) e.preventDefault();
+    const sb = e.target.closest("[data-send]");
+    const pb = e.target.closest("[data-send-project]");
+    const sk = e.target.closest("[data-skip]")?.dataset.skip;
+    const skp = e.target.closest("[data-skip-project]")?.dataset.skipProject;
+    if (sk && byKey[sk]) skip([byKey[sk]]);
+    if (skp) skip(visible().filter(({ r, f }) => r.project === skp && !ACTIVE.has(fixes[keyOf(r, f)]?.status) && !DONE.has(fixes[keyOf(r, f)]?.status)));
+    if (pb) sendFresh(visible().filter(({ r }) => r.project === pb.dataset.sendProject), pb.dataset.mode);
+    const s = sb?.dataset.send;
+    const a = e.target.closest("[data-answer]");
+    const r = e.target.closest("[data-reply]")?.dataset.reply;
+    if (c && byKey[c]) copy(fixPrompt([byKey[c]]), c);
+    // A finding stuck in working/needs-input (its agent died) can be restarted.
+    if (s && byKey[s] && (!ACTIVE.has(fixes[s]?.status) || confirm("An agent may still be on this finding. Start a new one?")))
+      send([byKey[s]], sb.dataset.mode);
+    if (a) reply(a.dataset.answer, a.dataset.text);
+    if (r) reply(r, drafts[r] || "");
+  });
+  el.addEventListener("input", e => { const k = e.target.dataset.draft; if (k) drafts[k] = e.target.value; });
+  el.addEventListener("keydown", e => {
+    const k = e.target.dataset.draft;
+    if (k && e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); reply(k, drafts[k] || ""); }
+  });
+}
+
+readHash();
+load();
+</script>
+</body>
+</html>

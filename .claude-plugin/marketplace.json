@@ -1,0 +1,13 @@
+{
+  "name": "aukmind",
+  "owner": { "name": "Aukmind" },
+  "description": "Puffin skills for Claude Code, by Aukmind.",
+  "plugins": [
+    {
+      "name": "puffin",
+      "source": "./puffins",
+      "description": "Puffin skills for Claude Code.",
+      "author": { "name": "AlexisTM" }
+    }
+  ]
+}
