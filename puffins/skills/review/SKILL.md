@@ -1,22 +1,23 @@
 ---
 name: review
-description: Review the whole repo split into projects, one /code-review agent each, then fix the findings from a web viewer.
-argument-hint: "<list|review|listen|stop> [low|medium|high|xhigh|max] [--agents N] [--project NAME]"
+description: Review the whole repo split into projects, one /code-review agent each, then fix the findings from a web viewer or all at once in deduplicated, file-disjoint groups.
+argument-hint: "<list|review|fix|listen|stop> [low|medium|high|xhigh|max] [--agents N] [--project NAME] [--no-commit]"
 ---
 
 # Puffin review
 
-Commands: `list` maps every file to a project in .puffins/projects.yaml, `review` reviews them in parallel, `listen` opens the viewer and runs each fix you click, `stop` shuts it down. No command: `listen` if reviews exist, else `review`. Run from the repo root, `S=${CLAUDE_SKILL_DIR}`.
+Commands: `list` maps every file to a project in .puffins/projects.yaml, `review` reviews them in parallel, `fix` fixes every open finding in parallel groups, `listen` opens the viewer and runs each fix you click, `stop` shuts it down. No command: `listen` if reviews exist, else `review`. Run from the repo root, `S=${CLAUDE_SKILL_DIR}`.
 
 Options:
 
 - Effort `low|medium|high|xhigh|max`: passed to /code-review. None given: pass none, so /code-review uses its own level.
 - `--max-findings <n|all|default>`: passed to /code-review, default `all`.
-- `--agents N`: review agents in flight, default 24.
-- `--project NAME`: review only that project and everything under it (`app` covers `app:ui:*`). Repeatable or comma-separated. Still skips finished reviews unless `review all`.
+- `--agents N`: agents in flight, default 24 for `review`, 8 for `fix`.
+- `--project NAME`: review or fix only that project and everything under it (`app` covers `app:ui:*`). Repeatable or comma-separated. Still skips finished reviews unless `review all`.
+- `--no-commit`: `fix` leaves its changes uncommitted.
 - `--out-dir`, default `.puffins/`. `--port`, default 8099.
 
-The web app stays in `$S/assets`. `coverage.py` and `projects.py` add the output dir to the repo `.gitignore`; leave that change uncommitted. Everything in the output dir is YAML: `projects.yaml`, `*.review.yaml`, and the append-only `fix-*.yaml` logs (one `- {json}` row per line), plus the `.listener` heartbeat. Each `*.review.yaml` starts with its project's `description` and `files`, so review and fix agents never read `projects.yaml`. Finding key: `<project>#<id>`.
+The web app stays in `$S/assets`. `coverage.py` and `projects.py` add the output dir to the repo `.gitignore`; leave that change uncommitted. Everything in the output dir is YAML: `projects.yaml`, `*.review.yaml`, `plan.yaml`, and the append-only `fix-*.yaml` logs (one `- {json}` row per line), plus the `.listener` heartbeat. Each `*.review.yaml` starts with its project's `description` and `files`, so review and fix agents never read `projects.yaml`. Finding key: `<project>#<id>`.
 
 ## list
 
@@ -50,10 +51,44 @@ Loop until this exits 0, fixing any `STALE?` path:
 
        Workflow({script: <review-workflow.js text>, args: {root, skillDir: S, outDir: ".puffins", projects, shard: i, shards, workers, effort, maxFindings}})
 
-   `projects` is step 2's JSON array, as a real array. Omit `effort` if none given. Tell the user `shards × workers` are in flight.
+   `projects` is step 2's JSON array, as a real array. Omit `effort` if none given. Tell the user `shards × workers` are in flight. Empty array: nothing to review, skip to step 4.
 4. When done, run `python3 $S/scripts/validate.py .puffins` and redo step 2 for invalid or missing reviews.
 
 If RAM is tight (`free -h`), warn before going above ~24 agents.
+
+## fix
+
+Fixes every open finding (no fix status yet, or `failed`) without the viewer. Never re-reviews afterwards unless asked.
+
+1. Run `review` with the same effort and `--project`. It skips finished reviews, so this only reviews what is missing.
+2. List the open findings, clustered by shared file. Nothing open: say so and stop.
+
+       python3 $S/scripts/fix_plan.py list .puffins [--project NAME]
+
+3. Merge, dedup and group into `.puffins/plan.yaml`:
+   - Duplicates: findings with one root cause or one fix. Keep the most severe, most precise one in `findings`; map the others to it under `duplicates`.
+   - Groups: a cluster never splits, since its findings share a file. Merge clusters of one subsystem when they make one coherent commit. Add to `files` any file a suggested fix needs beyond the finding's own.
+   - Each group is one meaningful commit. Prefer more, smaller groups: they are the parallelism.
+
+   Shape:
+
+       groups:
+         - name: auth-session            # [\w.-]+
+           summary: <one line, the commit's intent>
+           files: [lib/auth.py, lib/session.py]
+           findings: ["app:auth#3", "app:api#1"]
+           duplicates: {"app:api#4": "app:auth#3"}
+
+   Loop until this exits 0; its stdout is the groups JSON:
+
+       python3 $S/scripts/fix_plan.py check .puffins [--project NAME]
+
+4. Launch, with `workers = min(--agents, groups, min(16, CPUs-2))`. Read `$S/assets/fix-workflow.js` and pass its full text inline as `script` (never `scriptPath`):
+
+       Workflow({script: <fix-workflow.js text>, args: {root, skillDir: S, outDir: ".puffins", groups, workers, commit}})
+
+   `groups` is step 3's JSON, as a real array; `commit` is false on `--no-commit`. Tell the user `groups × workers`.
+5. When done, report one line per group, then the `failed` and `needs-input` keys with their notes. For `needs-input`, point to `listen`, where replies continue the thread.
 
 ## listen
 
