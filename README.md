@@ -1,3 +1,5 @@
+<img src="puffins/assets/logo.svg" alt="Puffin" width="128" align="right">
+
 # Puffin skills
 
 Claude Code skills so Puffins come to your aid.
@@ -44,3 +46,7 @@ Bump `version` in [puffins/.claude-plugin/plugin.json](puffins/.claude-plugin/pl
 ## Local hacking
 
     ln -s "$PWD/puffins/skills/review" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/review"
+
+## License
+
+MIT, see [LICENSE](LICENSE).
