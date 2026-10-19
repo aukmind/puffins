@@ -1,4 +1,4 @@
-<img src="puffins/assets/logo.svg" alt="Puffin" width="128" align="right">
+<p align="center"><img src="puffins/assets/logo.svg" alt="Puffin" width="128"></p>
 
 # Puffin skills
 
@@ -28,20 +28,6 @@ Claude Code skills so Puffins come to your aid.
 Fix statuses from `fix` show up in the viewer, and `needs-input` findings continue there with `listen`.
 
 ![project-review](docs/project-review.png)
-
-## Publish to your organization
-
-Bump `version` in [puffins/.claude-plugin/plugin.json](puffins/.claude-plugin/plugin.json) first, then pick one:
-
-- **Org plugin library (claude.ai).** In Claude Code, signed in to the org, ask: `publish the plugin in ./puffins to my org`. It lists the files it will send and asks before uploading. An admin then reviews it, unless the org publishes without review. Colleagues install it from the library.
-- **Managed settings (git marketplace).** Admins add the marketplace and enable the plugin for everyone in the managed `settings.json`:
-
-      "extraKnownMarketplaces": {
-        "aukmind": { "source": { "source": "github", "repo": "aukmind/puffins" } }
-      },
-      "enabledPlugins": { "puffin@aukmind": true }
-
-  Updates ship with a push to `main` and reach people the next time they run `/plugin marketplace update aukmind`.
 
 ## Local hacking
 
