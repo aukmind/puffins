@@ -4,6 +4,7 @@ A log row is one `- {json}` line: JSON is valid YAML flow, so the file stays a Y
 list while each append stays a single atomic line.
 """
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -36,13 +37,76 @@ def read_rows(path):
     return rows
 
 
+NON_CODE_EXT = {
+    # images, media, fonts
+    "png", "jpg", "jpeg", "gif", "bmp", "ico", "icns", "svg", "webp", "tif", "tiff", "psd", "xcf", "heic",
+    "mp3", "wav", "ogg", "flac", "m4a", "mp4", "mov", "avi", "mkv", "webm",
+    "ttf", "otf", "woff", "woff2", "eot",
+    # archives, binaries, documents
+    "zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar", "jar", "war", "aar", "apk", "ipa", "deb", "rpm", "dmg", "iso",
+    "exe", "dll", "so", "dylib", "a", "o", "obj", "lib", "bin", "class", "pyc", "pyo", "wasm",
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
+    # logs, data, models
+    "log", "csv", "tsv", "parquet", "feather", "arrow", "avro", "sqlite", "sqlite3", "db", "pcap", "pcapng",
+    "bag", "mcap", "db3", "npy", "npz", "pkl", "pickle", "h5", "hdf5", "onnx", "pt", "pth", "ckpt",
+    "safetensors", "tflite", "pb", "stl", "fbx", "glb", "gltf", "blend", "ply", "pcd", "dae",
+    # generated
+    "map", "lock", "sum",
+}
+NON_CODE_NAMES = {
+    "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "LICENSE", "LICENSE.txt", "LICENSE.md",
+    "COPYING", "NOTICE", ".DS_Store",
+}
+NON_CODE_SUFFIXES = (".min.js", ".min.css")
+SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".dart_tool", ".gradle", ".idea",
+             "build", "dist", "target", ".next", ".cache", ".tox", ".mypy_cache", ".pytest_cache"}
+
+
+def git_root():
+    r = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    return Path(r.stdout.strip()) if r.returncode == 0 else None
+
+
 def repo_root():
-    return Path(subprocess.run(["git", "rev-parse", "--show-toplevel"],
-                               capture_output=True, text=True, check=True).stdout.strip())
+    """The git root, or the current dir when there is no repo."""
+    return git_root() or Path.cwd()
+
+
+def is_code(root, path):
+    """Source, config and other reviewable text: no media, binaries, logs, data, lockfiles or licenses."""
+    name = path.rsplit("/", 1)[-1]
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    if ext in NON_CODE_EXT or name in NON_CODE_NAMES or name.endswith(NON_CODE_SUFFIXES) or ".log." in name:
+        return False
+    try:
+        with open(Path(root) / path, "rb") as f:
+            return b"\0" not in f.read(8192)
+    except OSError:
+        return True
+
+
+def repo_files(root, out_dir, untracked=False, all_files=False):
+    """Files to review: git-tracked (plus untracked if asked, or every file outside SKIP_DIRS without git), code only unless all_files."""
+    out_dir = out_dir.strip("/")
+    if git_root():
+        cmd = ["git", "ls-files", "--cached"] + (["--others", "--exclude-standard"] if untracked else [])
+        files = subprocess.run(cmd, cwd=root, capture_output=True, text=True, check=True).stdout.splitlines()
+    else:
+        files = []
+        for d, dirs, names in os.walk(root):
+            dirs[:] = sorted(x for x in dirs if x not in SKIP_DIRS)
+            rel = Path(d).relative_to(root)
+            files += [(rel / n).as_posix() for n in sorted(names)]
+    return [
+        f for f in files
+        if not f.startswith(out_dir + "/") and (all_files or is_code(root, f))
+    ]
 
 
 def ensure_gitignored(root, out_dir):
-    """Append `<out_dir>/` to the repo's .gitignore if missing. Never staged or committed."""
+    """Append `<out_dir>/` to the repo's .gitignore if missing. Never staged or committed. No-op outside git."""
+    if not git_root():
+        return
     entry = out_dir.strip("/") + "/"
     gi = Path(root) / ".gitignore"
     text = gi.read_text() if gi.exists() else ""

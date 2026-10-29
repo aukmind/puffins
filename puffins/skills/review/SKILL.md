@@ -1,7 +1,7 @@
 ---
 name: review
 description: Review the whole repo split into projects, one /code-review agent each, then fix the findings from a web viewer or all at once in deduplicated, file-disjoint groups.
-argument-hint: "<list|review|fix|listen|stop> [low|medium|high|xhigh|max] [--agents N] [--project NAME] [--no-commit]"
+argument-hint: "<list|review|fix|listen|stop> [low|medium|high|xhigh|max] [--agents N] [--project NAME] [--no-commit] [extra context]"
 ---
 
 # Puffin review
@@ -15,6 +15,7 @@ Options:
 - `--agents N`: agents in flight, default 24 for `review`, 8 for `fix`.
 - `--project NAME`: review or fix only that project and everything under it (`app` covers `app:ui:*`). Repeatable or comma-separated. Still skips finished reviews unless `review all`.
 - `--no-commit`: `fix` leaves its changes uncommitted.
+- Extra context: any other free text, e.g. "focus on thread safety" or "include untracked files and the images". Pass it verbatim as `context` to the review workflow. Scope defaults to tracked code only (`git ls-files`, or every file outside build/vendor dirs without git; no images, media, fonts, binaries, archives, logs, data dumps, lockfiles, minified files or licenses). If the context asks for untracked or non-code files, run `coverage.py` with `--untracked` / `--all-files` and `list` again.
 - `--out-dir`, default `.puffins/`. `--port`, default 8099.
 
 The web app stays in `$S/assets`. `coverage.py` and `projects.py` add the output dir to the repo `.gitignore`; leave that change uncommitted. Everything in the output dir is YAML: `projects.yaml`, `*.review.yaml`, `plan.yaml`, and the append-only `fix-*.yaml` logs (one `- {json}` row per line), plus the `.listener` heartbeat. Each `*.review.yaml` starts with its project's `description` and `files`, so review and fix agents never read `projects.yaml`. Finding key: `<project>#<id>`.
@@ -35,23 +36,24 @@ Write `.puffins/projects.yaml`, or refresh it: add new files, drop deleted paths
 - Group projects of one area together; the area is the name's first segment.
 - `a:b:c` → `.puffins/a/b/c.review.yaml`.
 - The output dir itself is never listed.
+- Only list what `coverage.py` reports. Never open a file to classify it if its name is enough; never read images or binaries.
 
-Loop until this exits 0, fixing any `STALE?` path:
+Loop until this exits 0, fixing any `STALE?` path and dropping any `NOT CODE` one. Add `--untracked` / `--all-files` only when the extra context asks for them:
 
     python3 $S/scripts/coverage.py .puffins
 
 ## review
 
-1. No `.puffins/projects.yaml`: run `list` first.
+1. No `.puffins/projects.yaml`, or the extra context widens the file scope: run `list` first.
 2. Build the work list. `review all` drops `--skip-existing`. Pass each `--project` through as is. Tell the user how many fix-history rows were archived.
 
        python3 $S/scripts/projects.py --out-dir .puffins --skip-existing --archive-fixes
 
 3. Launch (this skill is the Workflow opt-in). A workflow runs at most `min(16, CPUs-2)` agents, so with N = min(`--agents`, project count): `shards = ceil(N / cap)`, `workers = ceil(N / shards)`. Read `$S/assets/review-workflow.js` and pass its full text inline as `script`. Never use `scriptPath`: the skill dir is outside the project, so Workflow refuses it even after a Read. Send all shards in one message:
 
-       Workflow({script: <review-workflow.js text>, args: {root, skillDir: S, outDir: ".puffins", projects, shard: i, shards, workers, effort, maxFindings}})
+       Workflow({script: <review-workflow.js text>, args: {root, skillDir: S, outDir: ".puffins", projects, shard: i, shards, workers, effort, maxFindings, context}})
 
-   `projects` is step 2's JSON array, as a real array. Omit `effort` if none given. Tell the user `shards × workers` are in flight. Empty array: nothing to review, skip to step 4.
+   `projects` is step 2's JSON array, as a real array. Omit `effort` if none given. Omit `context` if none given. Tell the user `shards × workers` are in flight. Empty array: nothing to review, skip to step 4.
 4. When done, run `python3 $S/scripts/validate.py .puffins` and redo step 2 for invalid or missing reviews.
 
 If RAM is tight (`free -h`), warn before going above ~24 agents.

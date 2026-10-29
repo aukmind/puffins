@@ -17,9 +17,9 @@ Claude Code skills so Puffins come to your aid.
 
 ## Skills
 
-- `/puffin:review <list|review|fix|listen|stop> [low|medium|high|xhigh|max] [--agents N] [--project NAME] [--no-commit]`
+- `/puffin:review <list|review|fix|listen|stop> [low|medium|high|xhigh|max] [--agents N] [--project NAME] [--no-commit] [extra context]`
 - - `/puffin:review`: VERY fast full repo review with fixes from a web viewer. [review skill](puffins/skills/review/SKILL.md).
-- - `list`: List projects and subprojects of your repo
+- - `list`: List projects and subprojects of your repo. Only tracked code files (`git ls-files`, no images, binaries, logs, data or lockfiles); ask in the extra context to widen it
 - - `review`: Reviews each subproject with `/code-review` using N agents (runs list if needed)
 - - `fix`: Fixes all open findings (runs review if needed): dedups them, groups them by file set and subsystem, then fixes the groups in parallel, one commit per group (`--no-commit` to skip). No re-review afterwards.
 - - `listen`: Starts a web page and integration to review the changes from it (runs review if needed)

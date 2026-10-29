@@ -4,9 +4,11 @@ export const meta = {
   phases: [{ title: 'Review', detail: 'one agent per project, worker pool' }],
 }
 
-// args: {root, skillDir, outDir = '.puffins', projects: [{name, out, description, files}], shard = 0, shards = 1, workers = 12, effort, maxFindings = 'all'}
+// args: {root, skillDir, outDir = '.puffins', projects: [{name, out, description, files}], shard = 0, shards = 1, workers = 12, effort, maxFindings = 'all', context = ''}
 // effort omitted -> /code-review uses its own last level
-const { root, skillDir, outDir = '.puffins', effort = '', maxFindings = 'all', shard = 0, shards = 1, workers = 12 } = args
+const { root, skillDir, outDir = '.puffins', effort = '', maxFindings = 'all', shard = 0, shards = 1, workers = 12, context = '' } = args
+const SCOPE_RULE = 'Review code only: source, scripts, config, build files. Never open images, media, fonts, binaries, archives, logs, data dumps, lockfiles, minified or generated files, even when a glob in your scope matches them, unless the extra context says otherwise.'
+const CONTEXT = context ? `\n\nExtra context from the user, it wins over the rules above:\n${context}` : ''
 const projects = args.projects.filter((_, i) => i % shards === shard)
 
 const SCHEMA = `project: <name>
@@ -37,7 +39,7 @@ function prompt(p) {
    Files, your scope: paths, globs, and \`region\`s naming code inside a shared file (e.g. specific functions, or a docker-compose service):
    ${JSON.stringify(p.files)}
 2. Run the code-review skill via the Skill tool: skill "code-review", args "${[effort, `--max-findings ${maxFindings}`].filter(Boolean).join(' ')}" plus your scope as path targets (files, not a diff). Never pass --fix or --comment.
-3. Only report findings anchored in your scope. You may read anything else in the repo to verify a finding or suggest reuse.
+3. ${SCOPE_RULE} Only report findings anchored in your scope. You may read anything else in the repo to verify a finding or suggest reuse.
 4. NO FIXES. Do not edit, create or delete any file except your output file. No state-changing git, docker, DB or network commands. Never touch prod.
 5. Write your result as YAML to ${root}/${p.out} (mkdir -p its directory), exactly this shape, using block scalars (|) for multi-line text. Its first three lines must be exactly:
 
@@ -52,7 +54,7 @@ ${SCHEMA}
 If the skill tells you to call ReportFindings, still write the same findings to the file.
 6. Validate: python3 ${skillDir}/scripts/validate.py $(dirname ${root}/${p.out}) — fix your file until it reports no error for it.
 
-Return one line: "<name>: <N> findings (<highest severity>)".`
+Return one line: "<name>: <N> findings (<highest severity>)".${CONTEXT}`
 }
 
 phase('Review')
