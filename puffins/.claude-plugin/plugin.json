@@ -1,7 +1,7 @@
 {
   "name": "puffin",
   "description": "Puffin skills for Claude Code, by Aukmind.",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "license": "MIT",
   "icon": "./assets/logo.png",
   "author": { "name": "AlexisTM" }

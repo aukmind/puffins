@@ -1,7 +1,7 @@
 ---
 name: review
 description: Review the whole repo split into projects, one /code-review agent each, then fix the findings from a web viewer or all at once in deduplicated, file-disjoint groups.
-argument-hint: "<list|review|fix|listen|stop> [low|medium|high|xhigh|max] [--agents N] [--project NAME] [--no-commit] [extra context]"
+argument-hint: "<list|review|fix|loopfix|listen|stop> [low|medium|high|xhigh|max] [--severity critical|high|medium|low|nit] [--loops N] [--agents N] [--project NAME] [--no-commit] [extra context]"
 ---
 
 # Puffin review
@@ -59,6 +59,10 @@ Loop until this exits 0, fixing any `STALE?` path and dropping any `NOT CODE` on
 4. When done, run `python3 $S/scripts/validate.py .puffins` and redo step 2 for invalid or missing reviews.
 
 If RAM is tight (`free -h`), warn before going above ~24 agents.
+
+## Usage limit
+
+When workflow agents fail with a usage limit ("You've hit your ... limit · resets <time>"), don't ask: schedule the resume yourself with a one-shot `CronCreate` two minutes after that reset time. Its prompt re-runs each failed workflow with `Workflow({scriptPath, resumeFromRunId, args})`, passing the same `args` again (a resume without `args` fails), and then carries on with the step you were on. Agents that finished are replayed from cache. If the whole session stops on the limit, Claude Code's own wait-for-reset continues an interactive session; for a headless `-p` run, the plugin's `StopFailure` hook resumes it after the reset.
 
 ## fix
 

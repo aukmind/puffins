@@ -18,6 +18,7 @@ Claude Code skills so Puffins come to your aid.
 
 ## Skills
 
+- `/puffin:autoresume <on|off|status>`: resume headless runs stopped by the usage limit right after the reset. Off by default.
 - `/puffin:review <list|review|fix|loopfix|listen|stop> [low|medium|high|xhigh|max] [--severity critical|high|medium|low|nit] [--loops N] [--agents N] [--project NAME] [--no-commit] [extra context]`
 - - `/puffin:review`: VERY fast full repo review with fixes from a web viewer. [review skill](puffins/skills/review/SKILL.md).
 - - `list`: List projects and subprojects of your repo. Only tracked code files (`git ls-files`, no images, binaries, logs, data or lockfiles); ask in the extra context to widen it
@@ -28,6 +29,8 @@ Claude Code skills so Puffins come to your aid.
 - - `stop`: Stops the server and monitoring
 
 Fix statuses from `fix` show up in the viewer, and `needs-input` findings continue there with `listen`. Settled trade-offs go to `.puffins/decisions.yaml` (`scripts/decide.py`) and are passed to every later review.
+
+Usage limits: interactive sessions continue on their own after the reset (Claude Code's `autoContinueAtUsageLimit`, on by default). For headless `claude -p` runs, turn on `/puffin:autoresume on` (off by default): the plugin's `StopFailure` hook (`puffins/hooks/`) resumes the session with `claude --resume <session> -p` two minutes after the reset, in the same permission mode, unless it already continued. `/puffin:autoresume off` (or `PUFFIN_NO_RESUME=1`) turns it off. Log: `$CLAUDE_PLUGIN_DATA/resume.log`. When only review or fix agents hit the limit, the skill schedules their resume itself.
 
 ![project-review](docs/project-review.png)
 
