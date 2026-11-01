@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "StopFailure": [
+      {
+        "matcher": "rate_limit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/resume_after_limit.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
