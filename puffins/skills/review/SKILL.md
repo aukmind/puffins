@@ -6,19 +6,21 @@ argument-hint: "<list|review|fix|listen|stop> [low|medium|high|xhigh|max] [--age
 
 # Puffin review
 
-Commands: `list` maps every file to a project in .puffins/projects.yaml, `review` reviews them in parallel, `fix` fixes every open finding in parallel groups, `listen` opens the viewer and runs each fix you click, `stop` shuts it down. No command: `listen` if reviews exist, else `review`. Run from the repo root, `S=${CLAUDE_SKILL_DIR}`.
+Commands: `list` maps every file to a project in .puffins/projects.yaml, `review` reviews them in parallel, `fix` fixes every open finding in parallel groups, `loopfix` fixes and re-reviews until nothing is left, `listen` opens the viewer and runs each fix you click, `stop` shuts it down. No command: `listen` if reviews exist, else `review`. Run from the repo root, `S=${CLAUDE_SKILL_DIR}`.
 
 Options:
 
 - Effort `low|medium|high|xhigh|max`: passed to /code-review. None given: pass none, so /code-review uses its own level.
 - `--max-findings <n|all|default>`: passed to /code-review, default `all`.
+- `--severity <critical|high|medium|low|nit>`: the lowest severity `fix` and `loopfix` work on, default `low` (so nits stay recorded but unfixed). Reviews always record every finding at every severity, so nothing has to be found twice.
+- `--loops N`: `loopfix` rounds, default 3.
 - `--agents N`: agents in flight, default 24 for `review`, 8 for `fix`.
 - `--project NAME`: review or fix only that project and everything under it (`app` covers `app:ui:*`). Repeatable or comma-separated. Still skips finished reviews unless `review all`.
 - `--no-commit`: `fix` leaves its changes uncommitted.
 - Extra context: any other free text, e.g. "focus on thread safety" or "include untracked files and the images". Pass it verbatim as `context` to the review workflow. Scope defaults to tracked code only (`git ls-files`, or every file outside build/vendor dirs without git; no images, media, fonts, binaries, archives, logs, data dumps, lockfiles, minified files or licenses). If the context asks for untracked or non-code files, run `coverage.py` with `--untracked` / `--all-files` and `list` again.
 - `--out-dir`, default `.puffins/`. `--port`, default 8099.
 
-The web app stays in `$S/assets`. `coverage.py` and `projects.py` add the output dir to the repo `.gitignore`; leave that change uncommitted. Everything in the output dir is YAML: `projects.yaml`, `*.review.yaml`, `plan.yaml`, and the append-only `fix-*.yaml` logs (one `- {json}` row per line), plus the `.listener` heartbeat. Each `*.review.yaml` starts with its project's `description` and `files`, so review and fix agents never read `projects.yaml`. Finding key: `<project>#<id>`.
+The web app stays in `$S/assets`. `coverage.py` and `projects.py` add the output dir to the repo `.gitignore`; leave that change uncommitted. Everything in the output dir is YAML: `projects.yaml`, `*.review.yaml`, `plan.yaml`, and the append-only `fix-*.yaml` logs (one `- {json}` row per line), plus the `.listener` heartbeat. Each `*.review.yaml` starts with its project's `description`, `files` and `reviewed_at` (the commit), so review and fix agents never read `projects.yaml`. Finding key: `<project>#<id>`. `decisions.yaml` holds settled trade-offs (`scripts/decide.py`); every re-review gets them, plus the project's earlier findings and what became of each, and does not report those again.
 
 ## list
 
@@ -45,9 +47,9 @@ Loop until this exits 0, fixing any `STALE?` path and dropping any `NOT CODE` on
 ## review
 
 1. No `.puffins/projects.yaml`, or the extra context widens the file scope: run `list` first.
-2. Build the work list. `review all` drops `--skip-existing`. Pass each `--project` through as is. Tell the user how many fix-history rows were archived.
+2. Build the work list: projects never reviewed, plus reviewed ones whose files changed since their review (those carry `since`, and the reviewer focuses on that diff). `review all` drops `--changed` and re-reviews everything, still with each project's history. Pass each `--project` through as is. Tell the user how many fix-history rows were archived.
 
-       python3 $S/scripts/projects.py --out-dir .puffins --skip-existing --archive-fixes
+       python3 $S/scripts/projects.py --out-dir .puffins --changed --archive-fixes
 
 3. Launch (this skill is the Workflow opt-in). A workflow runs at most `min(16, CPUs-2)` agents, so with N = min(`--agents`, project count): `shards = ceil(N / cap)`, `workers = ceil(N / shards)`. Read `$S/assets/review-workflow.js` and pass its full text inline as `script`. Never use `scriptPath`: the skill dir is outside the project, so Workflow refuses it even after a Read. Send all shards in one message:
 
@@ -62,10 +64,12 @@ If RAM is tight (`free -h`), warn before going above ~24 agents.
 
 Fixes every open finding (no fix status yet, or `failed`) without the viewer. Never re-reviews afterwards unless asked.
 
-1. Run `review` with the same effort and `--project`. It skips finished reviews, so this only reviews what is missing.
-2. List the open findings, clustered by shared file. Nothing open: say so and stop.
+1. Review what has no review yet, with the same effort and `--project`: step 2 of `review` with `--skip-existing` in place of `--changed`, then steps 3-4.
+2. List the open findings at or above `--severity`, clustered by shared file. Nothing open: say so and stop.
 
-       python3 $S/scripts/fix_plan.py list .puffins [--project NAME]
+       python3 $S/scripts/fix_plan.py list .puffins --severity low [--project NAME]
+
+   `fix_plan.py auto` writes a starting plan.yaml (clusters sharing a file or a project form one group); refine it in step 3 rather than writing it from scratch.
 
 3. Merge, dedup and group into `.puffins/plan.yaml`:
    - Duplicates: findings with one root cause or one fix. Keep the most severe, most precise one in `findings`; map the others to it under `duplicates`.
@@ -83,14 +87,25 @@ Fixes every open finding (no fix status yet, or `failed`) without the viewer. Ne
 
    Loop until this exits 0; its stdout is the groups JSON:
 
-       python3 $S/scripts/fix_plan.py check .puffins [--project NAME]
+       python3 $S/scripts/fix_plan.py check .puffins --severity low [--project NAME]
 
 4. Launch, with `workers = min(--agents, groups, min(16, CPUs-2))`. Read `$S/assets/fix-workflow.js` and pass its full text inline as `script` (never `scriptPath`):
 
        Workflow({script: <fix-workflow.js text>, args: {root, skillDir: S, outDir: ".puffins", groups, workers, commit}})
 
    `groups` is step 3's JSON, as a real array; `commit` is false on `--no-commit`. Tell the user `groups × workers`.
-5. When done, report one line per group, then the `failed` and `needs-input` keys with their notes. For `needs-input`, point to `listen`, where replies continue the thread.
+5. When done, report one line per group, then the `failed` and `needs-input` keys with their notes. For `needs-input`, point to `listen`, where replies continue the thread. When the user answers one in this session, record it: `python3 $S/scripts/decide.py .puffins <key> "<decision>"`.
+
+## loopfix
+
+Fix, re-review what the fixes touched, and repeat until no open finding at or above `--severity` is left, or `--loops` rounds (default 3) are done. Takes the same effort, `--severity`, `--project`, `--agents` and `--no-commit` as `fix`.
+
+1. Run `review` (incremental: new projects and changed ones).
+2. Each round:
+   1. `python3 $S/scripts/fix_plan.py count .puffins --severity S [--project NAME]`. 0: stop, the code is clean at that severity.
+   2. `fix_plan.py auto`, then refine and `check` it as in `fix` step 3, and launch the fix workflow as in `fix` step 4. Wait for it.
+   3. Re-review only what the fixes changed: `review` steps 2-4 (`projects.py --changed --archive-fixes`, same effort and `--project`). Each reviewer gets its diff and the project's history, so it checks the fixes and reports only new problems.
+3. Report one line per round (open before, fixed, skipped, failed, new findings), then what is still open, and the `needs-input` keys as in `fix` step 5. `failed` findings are retried next round; `needs-input` ones wait for the user.
 
 ## listen
 

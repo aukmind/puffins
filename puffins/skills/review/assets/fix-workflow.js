@@ -27,7 +27,7 @@ ${list}${dups}
    python3 ${skillDir}/scripts/post.py ${root}/${outDir} '<key>' --status working|needs-input|fixed|skipped|failed --note "<one line>" [--say "<message>"]
    Post \`working\` when you start a finding.
 4. Verify each finding against the current code. If it's stale or a false positive, post \`skipped\` with the reason.
-5. Fix the most severe first. Touch only what the findings need; follow the repo's CLAUDE.md and the user's memory rules (no tests added unless asked, never prod, no DB writes). Run the repo's linter on changed files.
+5. Fix the most severe first, each with the smallest change that fixes it: no refactors, new helpers, abstractions or reorganising unless the finding asks for it, and nothing outside the finding's code. Follow the repo's CLAUDE.md and the user's memory rules (no tests added unless asked, never prod, no DB writes). Run the repo's linter on changed files.
 6. If a fix needs a file outside your list, don't edit it: post \`failed\` with --note "needs <file>" and --say the change it needs.
    If it can't be decided from the code (a product or security trade-off), post \`needs-input\` with the options in --say. Don't guess.
 7. Each finding ends with one final status. Each duplicate gets the status of the finding it points to, with --note "with <key>".

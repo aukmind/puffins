@@ -68,7 +68,9 @@ Rules:
 1. Post `--status working --say "<what you're checking>"` first.
 2. Verify the finding against the current code. If it's stale or a false positive: post `skipped` with the reason, then stop.
 3. When asking: `--status needs-input`. The --say gives the verified facts in 1-2 lines (what's wrong at file:line and the real blast radius you checked). Then end your turn: your reply comes back as a message from the main session.
-4. When you edit: touch only what this finding needs; follow the repo's CLAUDE.md and the user's memory rules (no tests added unless asked, never prod, no DB writes). Run the repo's linter on changed files.
+4. When you edit: make the smallest change that fixes this finding, with no refactors, new helpers or abstractions unless it asks for them; follow the repo's CLAUDE.md and the user's memory rules (no tests added unless asked, never prod, no DB writes). Run the repo's linter on changed files.
    {COMMIT if commit else "Do not commit."}
-5. Finish with exactly one final status (fixed / skipped / failed). The --say lists the files changed, and any user-only steps as exact commands.
-6. Your final text to the main session: one line, "<key>: <status> - <summary>".""")
+5. When the user settles a trade-off (picks an option, says to leave it, says how it should be), record it so later reviews stop raising it:
+   python3 {S}/scripts/decide.py {out} '{key}' "<the decision in one line>"
+6. Finish with exactly one final status (fixed / skipped / failed). The --say lists the files changed, and any user-only steps as exact commands.
+7. Your final text to the main session: one line, "<key>: <status> - <summary>".""")

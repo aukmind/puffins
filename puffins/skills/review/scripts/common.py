@@ -3,6 +3,7 @@
 A log row is one `- {json}` line: JSON is valid YAML flow, so the file stays a YAML
 list while each append stays a single atomic line.
 """
+import fnmatch
 import json
 import os
 import re
@@ -161,3 +162,49 @@ def project_info(doc, out_dir):
         return doc.get("description", ""), doc["files"]
     p = next((p for p in load_projects(Path(out_dir) / "projects.yaml") if p["name"] == doc.get("project")), {})
     return p.get("description", ""), p.get("files", [])
+
+
+SEVERITIES = ("critical", "high", "medium", "low", "nit")
+
+
+def severity_floor(value):
+    """Validated --severity value: the lowest severity still reported."""
+    if value not in SEVERITIES:
+        raise SystemExit(f"--severity must be one of {', '.join(SEVERITIES)}, not {value!r}")
+    return value
+
+
+def at_least(severity, floor):
+    """True when `severity` is `floor` or worse. Unknown severities pass, so validation can name them."""
+    if severity not in SEVERITIES or floor not in SEVERITIES:
+        return True
+    return SEVERITIES.index(severity) <= SEVERITIES.index(floor)
+
+
+def git(root, *args):
+    r = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def head_sha(root):
+    return git(root, "rev-parse", "HEAD") if git_root() else None
+
+
+def review_base(root, review_path, doc):
+    """Commit a review was made at: its `reviewed_at`, else the last commit before the file was written."""
+    sha = doc.get("reviewed_at")
+    if sha and git(root, "cat-file", "-e", f"{sha}^{{commit}}") is not None:
+        return sha
+    mtime = int(Path(review_path).stat().st_mtime)
+    return git(root, "rev-list", "-1", f"--before={mtime}", "HEAD") or None
+
+
+def changed_since(root, base):
+    """Paths changed between `base` and the working tree."""
+    out = git(root, "diff", "--name-only", base)
+    return set(out.splitlines()) if out else set()
+
+
+def in_scope(files, path):
+    """Whether `path` falls under a project's files (paths or globs)."""
+    return any(path == f["path"] or fnmatch.fnmatchcase(path, f["path"]) for f in files)
